@@ -3,37 +3,57 @@
 %%% @copyright (C) 2016, <COMPANY>
 %%% @doc
 %%% This is an example project.
+%%% http://codereview.stackexchange.com/questions/135767/erlang-process-pool
 %%% @end
 %%% Created : 21. Jul 2016 22:23
 %%%-------------------------------------------------------------------
 -module(worker_pool).
 -export([
   init/0,
-  add_job/1,
+  add_job/2,
   worker/0,
-  controller/0
+  controller/0,
+  insert_job/0,
+  delete_job/1
 
 ]).
 
--define(TIMEOUT, 6000).
+-define(TIMEOUT, 10000).
 -define(POOL, pool).
--define(MAX, 3).
+-define(MAX, 100).
 
+%% ----------------------------------------------------------------------
+%% @doc
 %% init the server
+%% @end
+%% ----------------------------------------------------------------------
 init() ->
-  ets:new(?POOL, [public, named_table, ordered_set]),
+  ets:new(?POOL, [
+    public,
+    named_table,
+    ordered_set,
+    {write_concurrency, true},
+    {read_concurrency, true}]),
   Pid = spawn(?MODULE, controller, []),
   register(?MODULE, Pid).
 
-%% add job to pool by sending message.
-add_job(Value) ->
-  ?MODULE ! {new_worker, Value}.
+%% ----------------------------------------------------------------------
+%% @doc
+%% add jobs to pool by sending message.
+%% @end
+%% ----------------------------------------------------------------------
+add_job(Fun, Value) ->
+  ?MODULE ! {new_worker, Fun, Value}.
 
-%% trigger a process.
+%% ----------------------------------------------------------------------
+%% @doc
+%% running the jobs. triggered by message.
+%% @end
+%% ----------------------------------------------------------------------
 worker() ->
   receive
-    {do_work, Value} ->
-      example(Value);
+    {do_work, Fun, Value} ->
+      Fun(Value);
     _ ->
       exit(no_valid)
   after ?TIMEOUT ->
@@ -41,12 +61,16 @@ worker() ->
     exit(no_activity)
   end.
 
-%% create pool of process and trigger it by message.
+%% ----------------------------------------------------------------------
+%% @doc
+%% create a process tool and trigger it by message.
+%% @end
+%% ----------------------------------------------------------------------
 controller() ->
   receive
-    {new_worker, Value} ->
+    {new_worker, Fun, Value} ->
       Pid = insert_job(),
-      Pid ! {do_work, Value},
+      Pid ! {do_work, Fun, Value},
       controller();
     {'DOWN', _Ref, process, Pid, Reason} ->
       io:format(" worker ~p died (~p)~n", [Pid, Reason]),
@@ -57,11 +81,8 @@ controller() ->
       controller()
   end.
 
-
+%% ------------------------------------------------------------------------
 %% internal functions.
-example(Value) ->
-  timer:sleep(2000),
-  io:format("sleep [~p] done ~n", [Value]).
 
 %% insert to ets table, ordered by time.
 insert_job() ->
