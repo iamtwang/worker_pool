@@ -2,20 +2,14 @@
 %%% @author Tao
 %%% @copyright (C) 2016, <COMPANY>
 %%% @doc
-%%% This is an example project.
-%%% http://codereview.stackexchange.com/questions/135767/erlang-process-pool
+%%%
 %%% @end
-%%% Created : 21. Jul 2016 22:23
+%%% Created : 03. Aug 2016 21:48
 %%%-------------------------------------------------------------------
 -module(worker_pool).
 -export([
   init/0,
-  add_job/2,
-  worker/0,
-  controller/0,
-  insert_job/0,
-  delete_job/1
-
+  add_job/2
 ]).
 
 -define(TIMEOUT, 10000).
@@ -34,8 +28,8 @@ init() ->
     ordered_set,
     {write_concurrency, true},
     {read_concurrency, true}]),
-  Pid = spawn(?MODULE, controller, []),
-  register(?MODULE, Pid).
+
+  register(?MODULE, spawn(fun() -> controller() end)).
 
 %% ----------------------------------------------------------------------
 %% @doc
@@ -90,18 +84,17 @@ insert_job() ->
   insert_job(Jobs, ?MAX).
 insert_job(Jobs, Max) when Jobs < Max ->
   {Pid, _} = spawn_monitor(fun() -> worker() end),
-  ets:insert(?POOL, {{erlang:monotonic_time(seconds), pid_to_list(Pid)}, []}),
+  ets:insert(?POOL, {{erlang:monotonic_time(seconds), Pid}, []}),
   Pid;
 insert_job(_Jobs, _Max) ->
   First = ets:first(?POOL),
   {_, Key} = First,
-  exit(list_to_pid(Key), cancelled),
+  exit(Key, cancelled),
   ets:delete(?POOL, First),
   {Pid, _} = spawn_monitor(fun() -> worker() end),
-  ets:insert(?POOL, {{erlang:monotonic_time(seconds), pid_to_list(Pid)}, []}),
+  ets:insert(?POOL, {{erlang:monotonic_time(seconds), Pid}, []}),
   Pid.
 
 %% delete job from the pool if it was finished.
 delete_job(Pid) ->
-  Pid_list = pid_to_list(Pid),
-  ets:match_delete(?POOL, {{'_', Pid_list}, '_'}).
+  ets:match_delete(?POOL, {{'_', Pid}, '_'}).
